@@ -2,12 +2,13 @@ require 'nokogiri'
 
 module DocxTemplater
   class TemplateProcessor
-    attr_reader :data, :escape_html
+    attr_reader :data, :escape_html, :skip_unmatched
 
     # data is expected to be a hash of symbols => string or arrays of hashes.
-    def initialize(data, escape_html = true)
+    def initialize(data, escape_html = true, skip_unmatched: false)
       @data = data
       @escape_html = escape_html
+      @skip_unmatched = skip_unmatched
     end
 
     def render(document)
@@ -15,14 +16,10 @@ module DocxTemplater
       data.each do |key, value|
         case value
         when Array
-          document = enter_multiple_values(document, key)
+          document = enter_multiple_values(document, key, data[key])
           document.gsub!("#SUM:#{key.to_s.upcase}#", value.count.to_s)
         when TrueClass, FalseClass
-          if value
-            document.gsub!(/\#(END)?IF:#{key.to_s.upcase}\#/, '')
-          else
-            document.gsub!(/\#IF:#{key.to_s.upcase}\#.*\#ENDIF:#{key.to_s.upcase}\#/m, '')
-          end
+          document = enter_boolean_values(document, value, key)
         else
           document.gsub!("$#{key.to_s.upcase}$", safe(value))
         end
@@ -32,6 +29,18 @@ module DocxTemplater
 
     private
 
+    def enter_boolean_values doc, value, key
+      else_condition_present = doc.match("#ELSE:#{key.to_s.upcase}#")
+
+      if value
+        doc.gsub!(/\#ELSE:#{key.to_s.upcase}\#.*?\#ENDIF:#{key.to_s.upcase}\#/m, '') if else_condition_present
+      else
+        doc.gsub!(/\#IF:#{key.to_s.upcase}\#.*?\#ELSE:#{key.to_s.upcase}\#/m, '') if else_condition_present
+      end
+      doc.gsub!(/\#(ENDIF|ELSE|IF):#{key.to_s.upcase}\#/, '')
+      doc
+    end
+
     def safe(text)
       if escape_html
         text.to_s.gsub('&', '&amp;').gsub('>', '&gt;').gsub('<', '&lt;')
@@ -40,10 +49,8 @@ module DocxTemplater
       end
     end
 
-    def enter_multiple_values(document, key)
-      DocxTemplater.log("enter_multiple_values for: #{key}")
-      # TODO: ideally we would not re-parse xml doc every time
-      xml = Nokogiri::XML(document)
+    def enter_multiple_values xml, key, values
+      xml = Nokogiri::XML(xml)
 
       begin_row = "#BEGIN_ROW:#{key.to_s.upcase}#"
       end_row = "#END_ROW:#{key.to_s.upcase}#"
@@ -51,7 +58,10 @@ module DocxTemplater
       end_row_template = xml.xpath("//w:tr[contains(., '#{end_row}')]", xml.root.namespaces).first
       DocxTemplater.log("begin_row_template: #{begin_row_template}")
       DocxTemplater.log("end_row_template: #{end_row_template}")
-      raise "unmatched template markers: #{begin_row} nil: #{begin_row_template.nil?}, #{end_row} nil: #{end_row_template.nil?}. This could be because word broke up tags with it's own xml entries. See README." unless begin_row_template && end_row_template
+      unless begin_row_template && end_row_template
+        return as_result(xml) if @skip_unmatched
+        raise "unmatched template markers: #{begin_row} nil: #{begin_row_template.nil?}, #{end_row} nil: #{end_row_template.nil?}. This could be because word broke up tags with it's own xml entries. See README."
+      end
 
       row_templates = []
       row = begin_row_template.next_sibling
@@ -62,11 +72,26 @@ module DocxTemplater
       DocxTemplater.log("row_templates: (#{row_templates.count}) #{row_templates.map(&:to_s).inspect}")
 
       # for each data, reversed so they come out in the right order
-      data[key].reverse_each do |each_data|
-        DocxTemplater.log("each_data: #{each_data.inspect}")
+      values.reverse_each do |data|
+        DocxTemplater.log("each_data: #{data.inspect}")
+        rt = row_templates.map(&:dup)
+
+        each_data = {}
+        data.each do |k, v|
+          if v.is_a?(Array)
+            doc = Nokogiri::XML::Document.new
+            root = doc.create_element 'pseudo_root', xml.root.namespaces
+            root.inner_html = rt.reverse.map{|x| x.to_xml}.join
+            q = enter_multiple_values root.to_xml, k, v
+            rt = xml.parse(q).reverse
+          else
+            each_data[k] = v
+          end
+        end
+
 
         # dup so we have new nodes to append
-        row_templates.map(&:dup).each do |new_row|
+        rt.map(&:dup).each do |new_row|
           DocxTemplater.log("   new_row: #{new_row}")
           innards = new_row.inner_html
           matches = innards.scan(/\$EACH:([^\$]+)\$/)
@@ -80,12 +105,20 @@ module DocxTemplater
           # change all the internals of the new node, even if we did not template
           new_row.inner_html = innards
           # DocxTemplater::log("new_row new innards: #{new_row.inner_html}")
-
           begin_row_template.add_next_sibling(new_row)
         end
       end
       (row_templates + [begin_row_template, end_row_template]).each(&:unlink)
-      xml.to_s
+      as_result xml
     end
+
+    def as_result xml
+      if xml.root.name == 'pseudo_root'
+        xml.root.inner_html
+      else
+        xml.to_s
+      end
+    end
+
   end
 end

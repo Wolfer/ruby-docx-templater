@@ -75,6 +75,22 @@ describe DocxTemplater::TemplateProcessor do
         expect(out).to include('23rd <p>&amp;</p> #1 floor')
       end
     end
+    context 'when unmatched array' do
+      let(:unmatched_data) do
+        data.merge(unmatched_array: ['Some data'])
+      end
+
+      it 'raised' do
+        parser = DocxTemplater::TemplateProcessor.new(unmatched_data)
+        expect { parser.render(xml) }.to raise_error(RuntimeError)
+      end
+
+      it 'skipped' do
+        parser = DocxTemplater::TemplateProcessor.new(unmatched_data, skip_unmatched: true)
+        out = parser.render(xml)
+        expect(Nokogiri::XML.parse(out)).to be_xml
+      end
+    end
   end
 
   context 'unmatched begin and end row templates' do
@@ -193,13 +209,18 @@ EOF
 
   it 'should replace all condition keys' do
     expect(xml).to include('#IF:')
+    expect(xml).to include('#ELSE:')
     expect(xml).to include('#ENDIF:')
 
     out = parser.render(xml)
 
     expect(out).not_to include('#IF:')
+    expect(out).not_to include('#ELSE:')
     expect(out).not_to include('#ENDIF:')
     expect(out).not_to include('dont show this')
+    expect(out).not_to include('dont show this too')
+    
+    expect(out).to include('show this for else')
   end
 
   it 'shold render students names in the same order as the data' do
