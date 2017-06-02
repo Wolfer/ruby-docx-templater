@@ -209,13 +209,18 @@ EOF
 
   it 'should replace all condition keys' do
     expect(xml).to include('#IF:')
+    expect(xml).to include('#ELSE:')
     expect(xml).to include('#ENDIF:')
 
     out = parser.render(xml)
 
     expect(out).not_to include('#IF:')
+    expect(out).not_to include('#ELSE:')
     expect(out).not_to include('#ENDIF:')
     expect(out).not_to include('dont show this')
+    expect(out).not_to include('dont show this too')
+    
+    expect(out).to include('show this for else')
   end
 
   it 'shold render students names in the same order as the data' do

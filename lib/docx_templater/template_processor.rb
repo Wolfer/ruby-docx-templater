@@ -19,11 +19,7 @@ module DocxTemplater
           document = enter_multiple_values(document, key, data[key])
           document.gsub!("#SUM:#{key.to_s.upcase}#", value.count.to_s)
         when TrueClass, FalseClass
-          if value
-            document.gsub!(/\#(END)?IF:#{key.to_s.upcase}\#/, '')
-          else
-            document.gsub!(/\#IF:#{key.to_s.upcase}\#.*\#ENDIF:#{key.to_s.upcase}\#/m, '')
-          end
+          document = enter_boolean_values(document, value, key)
         else
           document.gsub!("$#{key.to_s.upcase}$", safe(value))
         end
@@ -32,6 +28,18 @@ module DocxTemplater
     end
 
     private
+
+    def enter_boolean_values doc, value, key
+      else_condition_present = doc.match("#ELSE:#{key.to_s.upcase}#")
+
+      if value
+        doc.gsub!(/\#ELSE:#{key.to_s.upcase}\#.*?\#ENDIF:#{key.to_s.upcase}\#/m, '') if else_condition_present
+      else
+        doc.gsub!(/\#IF:#{key.to_s.upcase}\#.*?\#ELSE:#{key.to_s.upcase}\#/m, '') if else_condition_present
+      end
+      doc.gsub!(/\#(ENDIF|ELSE|IF):#{key.to_s.upcase}\#/, '')
+      doc
+    end
 
     def safe(text)
       if escape_html
