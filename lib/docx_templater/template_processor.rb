@@ -19,11 +19,7 @@ module DocxTemplater
           document = enter_multiple_values(document, key, data[key])
           document.gsub!("#SUM:#{key.to_s.upcase}#", value.count.to_s)
         when TrueClass, FalseClass
-          if value
-            document.gsub!(/\#(END)?IF:#{key.to_s.upcase}\#/, '')
-          else
-            document.gsub!(/\#IF:#{key.to_s.upcase}\#.*\#ENDIF:#{key.to_s.upcase}\#/m, '')
-          end
+          document = enter_boolean_values(document, value, key)
         else
           document.gsub!("$#{key.to_s.upcase}$", safe(value))
         end
@@ -32,6 +28,18 @@ module DocxTemplater
     end
 
     private
+
+    def enter_boolean_values doc, value, key
+      else_condition_present = doc.match("#ELSE:#{key.to_s.upcase}#")
+
+      if value
+        doc.gsub!(/\#ELSE:#{key.to_s.upcase}\#.*?\#ENDIF:#{key.to_s.upcase}\#/m, '') if else_condition_present
+      else
+        doc.gsub!(/\#IF:#{key.to_s.upcase}\#.*?\#ELSE:#{key.to_s.upcase}\#/m, '') if else_condition_present
+      end
+      doc.gsub!(/\#(ENDIF|ELSE|IF):#{key.to_s.upcase}\#/, '')
+      doc
+    end
 
     def safe(text)
       if escape_html
@@ -46,6 +54,7 @@ module DocxTemplater
 
       begin_row = "#BEGIN_ROW:#{key.to_s.upcase}#"
       end_row = "#END_ROW:#{key.to_s.upcase}#"
+
       begin_row_template = xml.xpath("//w:tr[contains(., '#{begin_row}')]", xml.root.namespaces).first
       end_row_template = xml.xpath("//w:tr[contains(., '#{end_row}')]", xml.root.namespaces).first
       DocxTemplater.log("begin_row_template: #{begin_row_template}")
@@ -70,7 +79,7 @@ module DocxTemplater
 
         each_data = {}
         data.each do |k, v|
-          if v.is_a?(Array)
+          if v.is_a? Array
             doc = Nokogiri::XML::Document.new
             root = doc.create_element 'pseudo_root', xml.root.namespaces
             root.inner_html = rt.reverse.map{|x| x.to_xml}.join
@@ -81,12 +90,19 @@ module DocxTemplater
           end
         end
 
-
         # dup so we have new nodes to append
         rt.map(&:dup).each do |new_row|
           DocxTemplater.log("   new_row: #{new_row}")
           innards = new_row.inner_html
           matches = innards.scan(/\$EACH:([^\$]+)\$/)
+
+          each_data.each do |key, value|
+            if value.is_a?(TrueClass) || value.is_a?(FalseClass)
+              innards = enter_boolean_values(innards, value, key)
+            end
+          end
+
+
           unless matches.empty?
             DocxTemplater.log("   matches: #{matches.inspect}")
             matches.map(&:first).each do |each_key|
