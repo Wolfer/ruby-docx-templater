@@ -30,7 +30,6 @@ module DocxTemplater
     private
 
     def enter_boolean_values doc, value, key
-      doc = doc.to_s
       else_condition_present = doc.match("#ELSE:#{key.to_s.upcase}#")
 
       if value
@@ -80,10 +79,10 @@ module DocxTemplater
 
         each_data = {}
         data.each do |k, v|
-          doc = Nokogiri::XML::Document.new
-          root = doc.create_element 'pseudo_root', xml.root.namespaces
-          root.inner_html = rt.reverse.map{|x| x.to_xml}.join
           if v.is_a? Array
+            doc = Nokogiri::XML::Document.new
+            root = doc.create_element 'pseudo_root', xml.root.namespaces
+            root.inner_html = rt.reverse.map{|x| x.to_xml}.join
             q = enter_multiple_values root.to_xml, k, v
             rt = xml.parse(q).reverse
           else
@@ -98,14 +97,8 @@ module DocxTemplater
           matches = innards.scan(/\$EACH:([^\$]+)\$/)
 
           each_data.each do |key, value|
-            else_condition_present = innards.match("#ELSE:#{key.to_s.upcase}#")
             if value.is_a?(TrueClass) || value.is_a?(FalseClass)
-              if value == true
-                innards.gsub!(/\#ELSE:#{key.to_s.upcase}\#.*?\#ENDIF:#{key.to_s.upcase}\#/m, '') if else_condition_present
-              else
-                innards.gsub!(/\#IF:#{key.to_s.upcase}\#.*?\#ELSE:#{key.to_s.upcase}\#/m, '') if else_condition_present
-              end
-              innards.gsub!(/\#(ENDIF|ELSE|IF):#{key.to_s.upcase}\#/, '')
+              innards = enter_boolean_values(innards, value, key)
             end
           end
 

@@ -7,5 +7,5 @@ module DocxTemplater
   end
 end
 
-require '/home/griminy/Desktop/Code/ruby-docx-templater/lib/docx_templater/template_processor'
-require '/home/griminy/Desktop/Code/ruby-docx-templater/lib/docx_templater/docx_creator'
+require 'docx_templater/template_processor'
+require 'docx_templater/docx_creator'
